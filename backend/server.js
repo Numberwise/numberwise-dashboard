@@ -152,6 +152,82 @@ app.get('/api/dashboard/client/:clientId', async (req, res) => {
   }
 });
 
+// Admin endpoint to cleanup duplicate clients
+app.post('/api/admin/cleanup-duplicates', async (req, res) => {
+  try {
+    console.log('🧹 Starting duplicate cleanup...');
+    
+    // First, let's see what duplicates we have
+    const duplicatesQuery = await pool.query(`
+      SELECT name, COUNT(*) as count 
+      FROM clients 
+      GROUP BY name 
+      HAVING COUNT(*) > 1
+      ORDER BY count DESC
+    `);
+    
+    console.log('Found duplicates:', duplicatesQuery.rows);
+    
+    // Get total before cleanup
+    const beforeCount = await pool.query('SELECT COUNT(*) as total FROM clients');
+    
+    // Remove duplicates, keeping only the oldest record for each name
+    const cleanupResult = await pool.query(`
+      DELETE FROM clients 
+      WHERE id NOT IN (
+        SELECT DISTINCT ON (name) id
+        FROM clients 
+        ORDER BY name, created_at ASC
+      )
+    `);
+    
+    console.log(`✅ Removed ${cleanupResult.rowCount} duplicate records`);
+    
+    // Get final count
+    const afterCount = await pool.query('SELECT COUNT(*) as total FROM clients');
+    
+    res.json({ 
+      status: 'Cleanup completed successfully!',
+      duplicatesFound: duplicatesQuery.rows,
+      recordsRemoved: cleanupResult.rowCount,
+      clientCountBefore: parseInt(beforeCount.rows[0].total),
+      clientCountAfter: parseInt(afterCount.rows[0].total)
+    });
+  } catch (error) {
+    console.error('Cleanup error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get current client count (helper endpoint)
+app.get('/api/admin/client-count', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        COUNT(*) as total,
+        COUNT(DISTINCT name) as unique_names
+      FROM clients
+    `);
+    
+    const duplicatesCheck = await pool.query(`
+      SELECT name, COUNT(*) as count 
+      FROM clients 
+      GROUP BY name 
+      HAVING COUNT(*) > 1
+      ORDER BY count DESC
+    `);
+    
+    res.json({
+      totalClients: parseInt(result.rows[0].total),
+      uniqueClientNames: parseInt(result.rows[0].unique_names),
+      duplicates: duplicatesCheck.rows
+    });
+  } catch (error) {
+    console.error('Client count error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 404 handler
 app.use('*', (req, res) => {
   res.status(404).json({ 
@@ -171,46 +247,5 @@ app.listen(PORT, () => {
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🏢 Company: Numberwise - Complete administratieve ontzorging`);
   console.log(`🌐 CORS: Enabled for all origins`);
-});
-// Admin endpoint to cleanup duplicate clients
-app.post('/api/admin/cleanup-duplicates', async (req, res) => {
-  try {
-    console.log('🧹 Starting duplicate cleanup...');
-    
-    // First, let's see what duplicates we have
-    const duplicatesQuery = await pool.query(`
-      SELECT name, COUNT(*) as count 
-      FROM clients 
-      GROUP BY name 
-      HAVING COUNT(*) > 1
-      ORDER BY count DESC
-    `);
-    
-    console.log('Found duplicates:', duplicatesQuery.rows);
-    
-    // Remove duplicates, keeping only the oldest record for each name
-    const cleanupResult = await pool.query(`
-      DELETE FROM clients 
-      WHERE id NOT IN (
-        SELECT DISTINCT ON (name) id
-        FROM clients 
-        ORDER BY name, created_at ASC
-      )
-    `);
-    
-    console.log(`✅ Removed ${cleanupResult.rowCount} duplicate records`);
-    
-    // Get final count
-    const finalCount = await pool.query('SELECT COUNT(*) as total FROM clients');
-    
-    res.json({ 
-      status: 'Cleanup completed successfully!',
-      duplicatesFound: duplicatesQuery.rows.length,
-      recordsRemoved: cleanupResult.rowCount,
-      finalClientCount: finalCount.rows[0].total
-    });
-  } catch (error) {
-    console.error('Cleanup error:', error);
-    res.status(500).json({ error: error.message });
-  }
+  console.log(`🧹 Admin endpoints: /api/admin/cleanup-duplicates, /api/admin/client-count`);
 });
