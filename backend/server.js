@@ -153,7 +153,7 @@ app.get('/api/dashboard/client/:clientId', async (req, res) => {
 });
 
 // Admin endpoint to cleanup duplicate clients
-app.post('/api/admin/cleanup-duplicates', async (req, res) => {
+app.get('/api/admin/cleanup-duplicates', async (req, res) => {
   try {
     console.log('🧹 Starting duplicate cleanup...');
     
