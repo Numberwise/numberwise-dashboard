@@ -172,19 +172,45 @@ app.listen(PORT, () => {
   console.log(`🏢 Company: Numberwise - Complete administratieve ontzorging`);
   console.log(`🌐 CORS: Enabled for all origins`);
 });
+// Admin endpoint to cleanup duplicate clients
 app.post('/api/admin/cleanup-duplicates', async (req, res) => {
   try {
-    // Remove duplicate clients, keeping only the first occurrence
-    await pool.query(`
+    console.log('🧹 Starting duplicate cleanup...');
+    
+    // First, let's see what duplicates we have
+    const duplicatesQuery = await pool.query(`
+      SELECT name, COUNT(*) as count 
+      FROM clients 
+      GROUP BY name 
+      HAVING COUNT(*) > 1
+      ORDER BY count DESC
+    `);
+    
+    console.log('Found duplicates:', duplicatesQuery.rows);
+    
+    // Remove duplicates, keeping only the oldest record for each name
+    const cleanupResult = await pool.query(`
       DELETE FROM clients 
       WHERE id NOT IN (
-        SELECT MIN(id) 
+        SELECT DISTINCT ON (name) id
         FROM clients 
-        GROUP BY name
+        ORDER BY name, created_at ASC
       )
     `);
-    res.json({ status: 'Duplicates removed successfully!' });
+    
+    console.log(`✅ Removed ${cleanupResult.rowCount} duplicate records`);
+    
+    // Get final count
+    const finalCount = await pool.query('SELECT COUNT(*) as total FROM clients');
+    
+    res.json({ 
+      status: 'Cleanup completed successfully!',
+      duplicatesFound: duplicatesQuery.rows.length,
+      recordsRemoved: cleanupResult.rowCount,
+      finalClientCount: finalCount.rows[0].total
+    });
   } catch (error) {
+    console.error('Cleanup error:', error);
     res.status(500).json({ error: error.message });
   }
 });
