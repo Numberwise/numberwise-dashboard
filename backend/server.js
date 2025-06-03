@@ -1,13 +1,18 @@
-// ============================================================================
-// backend/server.js - Updated server with database integration
-// ============================================================================
-
 require('dotenv').config();
 const express = require('express');
+const cors = require('cors');
 const { pool, initializeDatabase } = require('./config/database');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// CORS Configuration - Allow all origins for development
+app.use(cors({
+  origin: true,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
 // Middleware
 app.use(express.json());
@@ -21,7 +26,8 @@ app.get('/', (req, res) => {
     status: 'Numberwise Dashboard API is running!',
     timestamp: new Date().toISOString(),
     version: '1.0.0',
-    company: 'Numberwise - Complete administratieve ontzorging'
+    company: 'Numberwise - Complete administratieve ontzorging',
+    cors: 'enabled'
   });
 });
 
@@ -126,7 +132,6 @@ app.get('/api/dashboard/client/:clientId', async (req, res) => {
 
     const client = result.rows[0];
     
-    // Mock recent activity for now
     const recentActivity = [
       {
         id: 1,
@@ -165,4 +170,5 @@ app.listen(PORT, () => {
   console.log(`🚀 Numberwise Dashboard API running on port ${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🏢 Company: Numberwise - Complete administratieve ontzorging`);
+  console.log(`🌐 CORS: Enabled for all origins`);
 });
