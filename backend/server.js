@@ -172,3 +172,19 @@ app.listen(PORT, () => {
   console.log(`🏢 Company: Numberwise - Complete administratieve ontzorging`);
   console.log(`🌐 CORS: Enabled for all origins`);
 });
+app.post('/api/admin/cleanup-duplicates', async (req, res) => {
+  try {
+    // Remove duplicate clients, keeping only the first occurrence
+    await pool.query(`
+      DELETE FROM clients 
+      WHERE id NOT IN (
+        SELECT MIN(id) 
+        FROM clients 
+        GROUP BY name
+      )
+    `);
+    res.json({ status: 'Duplicates removed successfully!' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
