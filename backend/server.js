@@ -1,26 +1,168 @@
+// ============================================================================
+// backend/server.js - Updated server with database integration
+// ============================================================================
+
+require('dotenv').config();
 const express = require('express');
+const { pool, initializeDatabase } = require('./config/database');
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Basic middleware
+// Middleware
 app.use(express.json());
 
-// Simple routes
+// Initialize database on startup
+initializeDatabase().catch(console.error);
+
+// Health check endpoint
 app.get('/', (req, res) => {
   res.json({ 
     status: 'Numberwise Dashboard API is running!',
     timestamp: new Date().toISOString(),
-    version: '1.0.0'
+    version: '1.0.0',
+    company: 'Numberwise - Complete administratieve ontzorging'
   });
 });
 
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'healthy', 
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    memory: process.memoryUsage()
   });
+});
+
+// Database test endpoint
+app.get('/api/test-db', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT NOW() as current_time, version() as postgres_version');
+    res.json({ 
+      status: 'Database connected successfully!',
+      currentTime: result.rows[0].current_time,
+      postgresVersion: result.rows[0].postgres_version
+    });
+  } catch (error) {
+    console.error('Database test error:', error);
+    res.status(500).json({ 
+      status: 'Database connection failed',
+      error: error.message 
+    });
+  }
+});
+
+// Get dashboard overview data
+app.get('/api/dashboard/overview', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        c.id as client_id,
+        c.name as client_name,
+        c.accounting_system,
+        COALESCE(zv.pending, 0) as zenvoices_pending,
+        COALESCE(zv.processing, 0) as zenvoices_processing,
+        COALESCE(zv.ready, 0) as zenvoices_ready,
+        COALESCE(zv.failed, 0) as zenvoices_failed,
+        COALESCE(acc.pending, 0) as accounting_pending,
+        COALESCE(acc.posted, 0) as accounting_posted,
+        COALESCE(acc.errors, 0) as accounting_errors
+      FROM clients c
+      LEFT JOIN zenvoices_status zv ON c.id = zv.client_id
+      LEFT JOIN accounting_status acc ON c.id = acc.client_id
+      WHERE c.is_active = true
+      ORDER BY c.name
+    `);
+
+    // Calculate summary
+    const summary = result.rows.reduce((acc, client) => {
+      acc.totalPending += client.zenvoices_pending + client.accounting_pending;
+      acc.totalErrors += client.zenvoices_failed + client.accounting_errors;
+      acc.totalReady += client.zenvoices_ready;
+      acc.totalProcessing += client.zenvoices_processing;
+      return acc;
+    }, {
+      totalPending: 0,
+      totalErrors: 0,
+      totalReady: 0,
+      totalProcessing: 0
+    });
+
+    res.json({
+      clients: result.rows,
+      summary,
+      lastUpdated: new Date()
+    });
+  } catch (error) {
+    console.error('Dashboard overview error:', error);
+    res.status(500).json({ error: 'Failed to fetch dashboard data' });
+  }
+});
+
+// Get client detail
+app.get('/api/dashboard/client/:clientId', async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    
+    const result = await pool.query(`
+      SELECT 
+        c.*,
+        zv.pending as zenvoices_pending,
+        zv.processing as zenvoices_processing,
+        zv.ready as zenvoices_ready,
+        zv.failed as zenvoices_failed,
+        acc.pending as accounting_pending,
+        acc.posted as accounting_posted,
+        acc.errors as accounting_errors
+      FROM clients c
+      LEFT JOIN zenvoices_status zv ON c.id = zv.client_id
+      LEFT JOIN accounting_status acc ON c.id = acc.client_id
+      WHERE c.id = $1
+    `, [clientId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
+
+    const client = result.rows[0];
+    
+    // Mock recent activity for now
+    const recentActivity = [
+      {
+        id: 1,
+        type: 'upload',
+        description: `Invoice processing for ${client.name}`,
+        status: 'processing',
+        time: '10 mins ago'
+      }
+    ];
+
+    res.json({
+      client,
+      recentActivity
+    });
+  } catch (error) {
+    console.error('Client detail error:', error);
+    res.status(500).json({ error: 'Failed to fetch client data' });
+  }
+});
+
+// 404 handler
+app.use('*', (req, res) => {
+  res.status(404).json({ 
+    error: 'Route not found',
+    message: 'This endpoint does not exist in the Numberwise Dashboard API'
+  });
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: 'Something went wrong!' });
 });
 
 app.listen(PORT, () => {
   console.log(`🚀 Numberwise Dashboard API running on port ${PORT}`);
+  console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🏢 Company: Numberwise - Complete administratieve ontzorging`);
 });
